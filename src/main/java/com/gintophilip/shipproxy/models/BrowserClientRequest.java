@@ -1,4 +1,4 @@
-package com.gintophilip.models;
+package com.gintophilip.shipproxy.models;
 
 
 import java.net.Socket;

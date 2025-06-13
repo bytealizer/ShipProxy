@@ -1,6 +1,6 @@
-package com.gintophilip.proxy;
+package com.gintophilip.shipproxy.proxy;
 
-import com.gintophilip.models.BrowserClientRequest;
+import com.gintophilip.shipproxy.models.BrowserClientRequest;
 
 import java.io.*;
 import java.net.ServerSocket;
