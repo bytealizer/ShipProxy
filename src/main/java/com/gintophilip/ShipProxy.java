@@ -44,10 +44,8 @@ public class ShipProxy {
                     finalOffShoreProxyOutputStream.flush();
                     // Read response from offshore proxy
                     OutputStream browserClientOut = req.getBrowserClient().getOutputStream();
-                    byte[] response = getResponseFromOffShoreProxy(finalOffShoreProxyInputStream);
-                    // Send response back to client
-                    browserClientOut.write(response);
-                    browserClientOut.flush();
+                    getResponseFromOffShoreProxy(finalOffShoreProxyInputStream,browserClientOut);
+
 
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -107,7 +105,7 @@ public class ShipProxy {
         requestBuilder.append("\r\n"); // End of headers
         return requestBuilder.toString();
     }
-    private byte[] getResponseFromOffShoreProxy(InputStream offShoreProxyInputStream) throws IOException {
+    private void getResponseFromOffShoreProxy(InputStream offShoreProxyInputStream, OutputStream browserClientOut) throws IOException {
         ByteArrayOutputStream responseBytes = new ByteArrayOutputStream();
         ByteArrayOutputStream headerBuffer = new ByteArrayOutputStream();
         int contentLength = -1;
@@ -144,7 +142,7 @@ public class ShipProxy {
                 } catch (NumberFormatException ignored) {}
             }
         }
-
+        browserClientOut.write(responseBytes.toByteArray());
         // Step 2: Read body
         byte[] buffer = new byte[8192];
         if (contentLength > 0) {
@@ -153,18 +151,28 @@ public class ShipProxy {
                 int bytesToRead = Math.min(buffer.length, contentLength - totalRead);
                 int bytesRead = offShoreProxyInputStream.read(buffer, 0, bytesToRead);
                 if (bytesRead == -1) break; // Unexpected EOF
-                responseBytes.write(buffer, 0, bytesRead);
+                browserClientOut.write(buffer, 0, bytesRead);
                 totalRead += bytesRead;
             }
         } else {
             // No Content-Length or unreliable, read until EOF
+            boolean isChunked = headers.toLowerCase().contains("transfer-encoding: chunked");
             int bytesRead;
-            while ((bytesRead = offShoreProxyInputStream.read(buffer)) != -1) {
-                responseBytes.write(buffer, 0, bytesRead);
+            if(isChunked){
+                while ((bytesRead = offShoreProxyInputStream.read(buffer)) != -1) {
+                    browserClientOut.write(buffer, 0, bytesRead);
+                    browserClientOut.flush();
+                }
+            }else{
+                while ((bytesRead = offShoreProxyInputStream.read(buffer)) != -1) {
+                    browserClientOut.write(buffer, 0, bytesRead);
+                    browserClientOut.flush();
+                }
             }
-        }
 
-        return responseBytes.toByteArray();
+
+        }
+        browserClientOut.flush();
     }
 
     private String getResponseFromOffShoreProxy1(InputStream offShoreProxyInputStream) throws IOException {
