@@ -1,4 +1,4 @@
-package com.gintophilip;
+package com.gintophilip.models;
 
 
 import java.net.Socket;
