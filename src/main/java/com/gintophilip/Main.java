@@ -7,12 +7,11 @@ import java.io.IOException;
 public class Main {
     public static void main(String[] args) {
 
-        ShipProxy shipProxy = new ShipProxy(9090);
-        try {
-            shipProxy.start();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        ShipProxy shipProxy = new ShipProxy();
+        String address = "localhost";
+        int port = 8081;
+        shipProxy.setOffShoreProxyAndPort(address, port);
+        shipProxy.listenAndServe(8080);
 
     }
 }
