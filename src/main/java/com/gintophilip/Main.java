@@ -11,7 +11,11 @@ public class Main {
         String address = "localhost";
         int port = 8081;
         shipProxy.setOffShoreProxyAndPort(address, port);
-        shipProxy.listenAndServe(8080);
+        try {
+            shipProxy.listenAndServe(8080);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
     }
 }
