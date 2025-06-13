@@ -18,13 +18,14 @@ test {
     useJUnitPlatform()
 }
 
-// === JAR configuration ===
-jar {
-    archiveBaseName.set("ShipProxy")
+tasks.register("releaseJar", Jar) {
+    dependsOn classes
+    archiveBaseName.set("ship-proxy")
     archiveVersion.set("1.0.0")
-    manifest {
-        attributes(
-                'Main-Class': 'com.gintophilip.shipproxy.Main'
-        )
-    }
+    from sourceSets.main.output
+    manifest.attributes(
+            'Main-Class': 'com.gintophilip.shipproxy.Main'
+    )
+    dependsOn "clean"
 }
+
