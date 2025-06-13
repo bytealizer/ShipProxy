@@ -1,5 +1,7 @@
 package com.gintophilip;
 
+import com.gintophilip.proxy.ShipProxy;
+
 import java.io.IOException;
 
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or

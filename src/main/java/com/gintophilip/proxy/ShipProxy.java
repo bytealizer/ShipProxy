@@ -1,4 +1,4 @@
-package com.gintophilip;
+package com.gintophilip.proxy;
 
 import com.gintophilip.models.BrowserClientRequest;
 
