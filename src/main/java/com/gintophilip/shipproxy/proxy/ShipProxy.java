@@ -18,13 +18,12 @@ public class ShipProxy {
 
     public void listenAndServe(int proxyServerPort) throws IOException {
         this.proxyServerPort = proxyServerPort;
-
         OutputStream offShoreProxyOutputStream = null;
         InputStream offShoreProxyInputStream = null;
         Socket socketToOffshoreProxy = null;
         try  {
-             socketToOffshoreProxy = new Socket(offShoreProxyAddress, offShoreProxyPort);
-            System.out.println("hjj");
+            socketToOffshoreProxy = new Socket(offShoreProxyAddress, offShoreProxyPort);
+            System.out.println("[ship_proxy] ship proxy client established socket "+socketToOffshoreProxy.getInetAddress()+":"+socketToOffshoreProxy.getPort());
             offShoreProxyOutputStream = socketToOffshoreProxy.getOutputStream();
             offShoreProxyInputStream = socketToOffshoreProxy.getInputStream();
         } catch (IOException e) {
@@ -36,16 +35,18 @@ public class ShipProxy {
         new Thread(() -> {
             while (true) {
                 try {
+                    System.out.println("current request queue "+requestQueue.size());
                     BrowserClientRequest req = requestQueue.take();
-                    System.out.println(req.getRequestId());
+                    System.out.println("fetched request from queue "+req.getRequest());
+
 
                     // Send request to offshore proxy
-                    finalOffShoreProxyOutputStream.write(req.getRequest().getBytes(StandardCharsets.UTF_8));
-                    finalOffShoreProxyOutputStream.flush();
+                    sendToOffshoreProxy(finalOffShoreProxyOutputStream, req);
+                    System.out.println("sent request.waiting for response");
                     // Read response from offshore proxy
                     OutputStream browserClientOut = req.getBrowserClient().getOutputStream();
-                    getResponseFromOffShoreProxy(finalOffShoreProxyInputStream,browserClientOut);
-
+                    getResponseFromOffShoreProxy(finalOffShoreProxyInputStream,browserClientOut,req.getBrowserClient());
+                    System.out.println("currrent items in request queue "+requestQueue.size());
 
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -57,6 +58,7 @@ public class ShipProxy {
         ServerSocket shipProxyServerSocket = null;
         try {
             shipProxyServerSocket = new ServerSocket(this.proxyServerPort);
+            System.out.println("[ship_proxy] ship proxy client created "+shipProxyServerSocket.getInetAddress().getHostAddress()+":"+shipProxyServerSocket.getLocalPort());
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -64,11 +66,18 @@ public class ShipProxy {
 
     }
 
+    private  void sendToOffshoreProxy(OutputStream finalOffShoreProxyOutputStream, BrowserClientRequest req) throws IOException {
+        System.out.println("sending to of shore proxy");
+        finalOffShoreProxyOutputStream.write(req.getRequest().getBytes(StandardCharsets.UTF_8));
+        finalOffShoreProxyOutputStream.flush();
+    }
+
 
     public void start(ServerSocket shipProxyServerSocket, InputStream offShoreProxyInputStream,
                       OutputStream offShoreProxyOutputStream) throws IOException {
         while (true) {
             Socket browserClient = shipProxyServerSocket.accept();
+            System.out.println("[ship_proxy]connection received from client "+browserClient.getInetAddress().getHostAddress()+":"+browserClient.getPort());
             new Thread(() -> handleClientRequest(browserClient, offShoreProxyInputStream, offShoreProxyOutputStream)).start();
         }
     }
@@ -83,17 +92,15 @@ public class ShipProxy {
             System.err.println("Error handling client request: " + e.getMessage());
             e.printStackTrace();
         } finally {
-            try {
-//                browserClient.close();
-                System.out.println("kk");
-            } catch (Exception e) {
-                System.err.println("Failed to close browser client socket: " + e.getMessage());
-            }
+
         }
     }
 
     private void sendRequestToQueue(BrowserClientRequest browserClientRequest) {
+        System.out.println("sending request to queue");
+        System.out.println("\t"+browserClientRequest.getRequest());
         requestQueue.add(browserClientRequest);
+        System.out.println("current items in request queue "+requestQueue.size());
     }
 
     private String buildRequest(BufferedReader reader) throws IOException {
@@ -105,7 +112,13 @@ public class ShipProxy {
         requestBuilder.append("\r\n"); // End of headers
         return requestBuilder.toString();
     }
-    private void getResponseFromOffShoreProxy(InputStream offShoreProxyInputStream, OutputStream browserClientOut) throws IOException {
+
+
+
+    private void getResponseFromOffShoreProxy(InputStream offShoreProxyInputStream,
+                                              OutputStream browserClientOut,
+                                              Socket browserClient) throws IOException {
+
         ByteArrayOutputStream responseBytes = new ByteArrayOutputStream();
         ByteArrayOutputStream headerBuffer = new ByteArrayOutputStream();
         int contentLength = -1;
@@ -118,7 +131,6 @@ public class ShipProxy {
             headerBuffer.write(curr);
             responseBytes.write(curr);
 
-            // Check for end of headers (\r\n\r\n)
             if (prev == '\r' && curr == '\n') {
                 byte[] temp = headerBuffer.toByteArray();
                 int len = temp.length;
@@ -133,7 +145,6 @@ public class ShipProxy {
             prev = curr;
         }
 
-        // Parse content-length from headers if present
         String headers = headerBuffer.toString(StandardCharsets.ISO_8859_1);
         for (String line : headers.split("\r\n")) {
             if (line.toLowerCase().startsWith("content-length:")) {
@@ -142,37 +153,71 @@ public class ShipProxy {
                 } catch (NumberFormatException ignored) {}
             }
         }
+
+        // Step 2: Send headers to client
         browserClientOut.write(responseBytes.toByteArray());
-        // Step 2: Read body
+
         byte[] buffer = new byte[8192];
+
+        // Step 3: Handle response body
         if (contentLength > 0) {
             int totalRead = 0;
             while (totalRead < contentLength) {
                 int bytesToRead = Math.min(buffer.length, contentLength - totalRead);
                 int bytesRead = offShoreProxyInputStream.read(buffer, 0, bytesToRead);
-                if (bytesRead == -1) break; // Unexpected EOF
+                if (bytesRead == -1) break;
                 browserClientOut.write(buffer, 0, bytesRead);
                 totalRead += bytesRead;
             }
         } else {
-            // No Content-Length or unreliable, read until EOF
             boolean isChunked = headers.toLowerCase().contains("transfer-encoding: chunked");
-            int bytesRead;
-            if(isChunked){
+
+            if (isChunked) {
+                System.out.println("received chunked");
+                final byte[] END_MARKER = "\r\nEND_OF_RESPONSE_FROM_OFF_SHORE_PROXY\r\n".getBytes(StandardCharsets.UTF_8);
+                ByteArrayOutputStream responseBuffer = new ByteArrayOutputStream();
+                int matchIndex = 0;
+
+                int bytesRead;
                 while ((bytesRead = offShoreProxyInputStream.read(buffer)) != -1) {
-                    browserClientOut.write(buffer, 0, bytesRead);
-                    browserClientOut.flush();
+                    for (int i = 0; i < bytesRead; i++) {
+                        byte b = buffer[i];
+                        responseBuffer.write(b);
+
+                        // Marker detection
+                        if (b == END_MARKER[matchIndex]) {
+                            matchIndex++;
+                            if (matchIndex == END_MARKER.length) {
+                                byte[] fullData = responseBuffer.toByteArray();
+                                int dataLength = fullData.length - END_MARKER.length;
+                                browserClientOut.write(fullData, 0, dataLength);
+                                browserClientOut.flush();
+                                System.out.println("END_MARKER detected, response flushed.");
+//                                browserClient.shutdownOutput(); // Optional
+//                                browserClient.close();
+                                return;
+                            }
+                        } else {
+                            matchIndex = (b == END_MARKER[0]) ? 1 : 0;
+                        }
+                    }
+
+                    // stream intermediate chunk to client
+//                    browserClientOut.write(buffer, 0, bytesRead);
+//                    browserClientOut.flush();
                 }
-            }else{
+            } else {
+                int bytesRead;
                 while ((bytesRead = offShoreProxyInputStream.read(buffer)) != -1) {
                     browserClientOut.write(buffer, 0, bytesRead);
                     browserClientOut.flush();
                 }
             }
-
-
         }
+
         browserClientOut.flush();
+//        browserClient.close();
+        System.out.println("sent result to client completed");
     }
 
     private String getResponseFromOffShoreProxy1(InputStream offShoreProxyInputStream) throws IOException {
