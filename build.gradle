@@ -1,10 +1,13 @@
 plugins {
     id 'java'
+    id 'application'
 }
 
 group = 'com.gintophilip'
 version = '1.0-SNAPSHOT'
-
+application {
+    mainClass = 'com.gintophilip.shipproxy.Main'
+}
 repositories {
     mavenCentral()
 }
@@ -18,4 +21,11 @@ test {
     useJUnitPlatform()
 }
 
+jar {
+    manifest {
+        attributes(
+                'Main-Class': application.mainClass.get()
+        )
+    }
+}
 
